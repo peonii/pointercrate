@@ -5,6 +5,7 @@ use crate::{
     error::{Result, UserError},
     User,
 };
+use base64::{engine::general_purpose::STANDARD, Engine};
 use jsonwebtoken::{Algorithm, DecodingKey, Validation};
 use log::{debug, info};
 use pointercrate_core::error::CoreError;
@@ -13,10 +14,6 @@ use sqlx::{Error, PgConnection};
 
 #[derive(Deserialize)]
 struct GoogleTokenResponse {
-    pub access_token: String,
-    pub expires_in: u64,
-    pub token_type: String,
-    pub scope: String,
     pub id_token: String,
 }
 
@@ -93,16 +90,12 @@ impl AuthenticatedUser {
             .await
             .map_err(|_| CoreError::Unauthorized)?;
 
-        // info!("Successfully fetched access token");
-        // info!("Body: {:?}", response);
-
-        // let text = response.text().await.map_err(|_| CoreError::Unauthorized)?;
-        // info!("Text: {:?}", text);
-
         let response: GoogleTokenResponse = response.json().await.map_err(|_| CoreError::Unauthorized)?;
 
-        info!("Successfully parsed access token {}", response.access_token);
-
+        // We can safely disable all validation here, as Google recommends to not
+        // validate a fresh token, as it is guaranteed to be valid.
+        //
+        // https://developers.google.com/identity/openid-connect/openid-connect#obtainuserinfo
         let key = DecodingKey::from_secret(&[]);
         let mut validation = Validation::new(Algorithm::HS256);
         validation.insecure_disable_signature_validation();
@@ -110,14 +103,9 @@ impl AuthenticatedUser {
         validation.validate_nbf = false;
         validation.validate_aud = false;
 
-        let user_info_token = jsonwebtoken::decode::<GoogleUserInfo>(&response.id_token, &key, &validation);
-
-        if let Err(err) = user_info_token {
-            info!("Failed to decode user info token: {:?}", err);
-            return Err(UserError::Core(CoreError::Unauthorized));
-        }
-
-        let user_info = user_info_token.unwrap().claims;
+        let user_info = jsonwebtoken::decode::<GoogleUserInfo>(&response.id_token, &key, &validation)
+            .map_err(|_| CoreError::Unauthorized)?
+            .claims;
 
         match User::by_google_account(&user_info.id, connection).await {
             Ok(user) => Ok(AuthenticatedUser {
@@ -127,7 +115,9 @@ impl AuthenticatedUser {
                 email_address: Some(user_info.email),
             }),
             Err(UserError::UserNotFoundGoogleAccount { .. }) => {
-                let random_temporary_name = base64::encode(&user_info.name);
+                // This is probably a good enough way to do this
+                // Should be random *enough* to not conflict
+                let random_temporary_name = STANDARD.encode(format!("{}{}", user_info.name, user_info.id).as_bytes());
 
                 let id = sqlx::query!(
                     "INSERT INTO members (email_address, name, display_name, google_account_id) VALUES (($1::text)::email, $2, $3, $4) RETURNING member_id",
