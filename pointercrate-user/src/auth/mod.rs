@@ -28,7 +28,7 @@ pub struct AuthenticatedUser {
     user: User,
     password_hash: Option<String>,
     email_address: Option<String>,
-    google_account_id: Option<String>,
+    pub google_account_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Copy, Clone)]
@@ -74,7 +74,9 @@ impl AuthenticatedUser {
 
     fn jwt_secret(&self) -> Vec<u8> {
         let mut key: Vec<u8> = pointercrate_core::config::secret();
-        key.extend(self.password_salt());
+        if self.password_hash.is_some() {
+            key.extend(self.password_salt());
+        }
         key
     }
 

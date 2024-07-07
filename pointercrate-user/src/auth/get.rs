@@ -61,7 +61,7 @@ impl AuthenticatedUser {
         Ok(user)
     }
 
-    pub async fn oauth2_callback(code: &str, connection: &mut PgConnection) -> Result<AuthenticatedUser> {
+    pub async fn oauth2_callback(code: &str, existing_id: Option<i32>, connection: &mut PgConnection) -> Result<AuthenticatedUser> {
         info!("We are expected to perform Google OAuth2 authentication");
 
         let client = reqwest::Client::new();
@@ -115,33 +115,61 @@ impl AuthenticatedUser {
                 email_address: Some(user_info.email),
             }),
             Err(UserError::UserNotFoundGoogleAccount { .. }) => {
-                // This is probably a good enough way to do this
-                // Should be random *enough* to not conflict
-                let random_temporary_name = STANDARD.encode(format!("{}{}", user_info.name, user_info.id).as_bytes());
+                if let Some(id) = existing_id {
+                    let user = AuthenticatedUser::by_id(id, connection).await?;
 
-                let id = sqlx::query!(
-                    "INSERT INTO members (email_address, name, display_name, google_account_id) VALUES (($1::text)::email, $2, $3, $4) RETURNING member_id",
-                    user_info.email,
-                    random_temporary_name,
-                    user_info.name,
-                    user_info.id
-                )
-                .fetch_one(connection)
-                .await?
-                .member_id;
+                    if user.google_account_id.is_some() {
+                        return Err(CoreError::Unauthorized.into());
+                    }
 
-                Ok(AuthenticatedUser {
-                    user: User {
-                        id,
-                        name: random_temporary_name,
-                        permissions: 0,
-                        display_name: Some(user_info.name),
-                        youtube_channel: None,
-                    },
-                    password_hash: None,
-                    google_account_id: Some(user_info.id),
-                    email_address: Some(user_info.email),
-                })
+                    let updated_user = sqlx::query!(
+                        "UPDATE members SET google_account_id = $1, email_address = ($2::text)::email WHERE member_id = $3 RETURNING member_id",
+                        user_info.id,
+                        user_info.email,
+                        id
+                    )
+                    .fetch_one(connection)
+                    .await?;
+
+                    if updated_user.member_id != id {
+                        return Err(Error::RowNotFound.into());
+                    }
+
+                    Ok(AuthenticatedUser {
+                        user: User { id, ..user.user },
+                        password_hash: None,
+                        google_account_id: Some(user_info.id),
+                        email_address: Some(user_info.email),
+                    })
+                } else {
+                    // This is probably a good enough way to do this
+                    // Should be random *enough* to not conflict
+                    let random_temporary_name = STANDARD.encode(format!("{}{}", user_info.name, user_info.id).as_bytes());
+
+                    let id = sqlx::query!(
+                        "INSERT INTO members (email_address, name, display_name, google_account_id) VALUES (($1::text)::email, $2, $3, $4) RETURNING member_id",
+                        user_info.email,
+                        random_temporary_name,
+                        user_info.name,
+                        user_info.id
+                    )
+                    .fetch_one(connection)
+                    .await?
+                    .member_id;
+
+                    Ok(AuthenticatedUser {
+                        user: User {
+                            id,
+                            name: random_temporary_name,
+                            permissions: 0,
+                            display_name: Some(user_info.name),
+                            youtube_channel: None,
+                        },
+                        password_hash: None,
+                        google_account_id: Some(user_info.id),
+                        email_address: Some(user_info.email),
+                    })
+                }
             },
             Err(err) => Err(err),
         }

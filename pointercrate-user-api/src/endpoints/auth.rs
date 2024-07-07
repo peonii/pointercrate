@@ -10,7 +10,7 @@ use pointercrate_core_api::{
 };
 use pointercrate_user::{error::UserError, AuthenticatedUser, PatchMe, Registration, User};
 use rocket::{
-    http::Status,
+    http::{Cookie, CookieJar, SameSite, Status},
     serde::json::{serde_json, Json},
     State,
 };
@@ -38,13 +38,22 @@ pub async fn register(
         .status(Status::Created))
 }
 
-#[rocket::get("/authorize")]
-pub async fn authorize(ip: IpAddr, ratelimits: &State<UserRatelimits>) -> Result<Response2<()>> {
+#[rocket::get("/authorize?<legacy>")]
+pub async fn authorize(
+    ip: IpAddr, ratelimits: &State<UserRatelimits>, legacy: Option<&str>, cookies: &CookieJar<'_>,
+) -> Result<Response2<()>> {
     ratelimits.login_attempts(ip)?;
+
+    if legacy.is_some() {
+        let legacy_cookie = Cookie::build(("legacy", "true")).http_only(true).same_site(SameSite::Lax).path("/");
+
+        cookies.add(legacy_cookie);
+    }
 
     let redirect_uri = "https://accounts.google.com/o/oauth2/v2/auth".to_string()
         + format!("?client_id={}", std::env::var("GOOGLE_CLIENT_ID").unwrap()).as_str()
         + "&response_type=code"
+        + "&prompt=consent"
         + "&scope=email%20profile"
         + "&redirect_uri=http%3A%2F%2Flocalhost%3A1971%2Fapi%2Fv1%2Fauth%2Fcallback";
 
@@ -55,16 +64,48 @@ pub async fn authorize(ip: IpAddr, ratelimits: &State<UserRatelimits>) -> Result
 
 #[rocket::get("/callback?<code>")]
 pub async fn callback(
-    pool: &State<PointercratePool>, ip: IpAddr, ratelimits: &State<UserRatelimits>, code: &str,
-) -> Result<Response2<Tagged<User>>> {
+    auth: std::result::Result<TokenAuth, UserError>, pool: &State<PointercratePool>, ip: IpAddr, ratelimits: &State<UserRatelimits>,
+    code: &str, cookies: &CookieJar<'_>,
+) -> Result<Response2<()>> {
     ratelimits.login_attempts(ip)?;
     let mut connection = pool.transaction().await.map_err(UserError::from)?;
 
-    let user = AuthenticatedUser::oauth2_callback(code, &mut *connection).await?;
+    let mut existing_id: Option<i32> = None;
 
-    Ok(Response2::tagged(user.into_inner())
-        .with_header("Location", "api/v1/auth/me")
-        .status(Status::Created))
+    if cookies.get("legacy").is_some() {
+        if auth.is_err() {
+            return Err(UserError::Core(pointercrate_core::error::CoreError::Unauthorized).into());
+        }
+
+        let user = auth?.user;
+
+        if user.google_account_id.is_some() {
+            return Err(UserError::AlreadyLinked.into());
+        }
+
+        existing_id = Some(user.inner().id);
+
+        cookies.remove("legacy");
+    }
+
+    let user = AuthenticatedUser::oauth2_callback(code, existing_id, &mut *connection).await?;
+
+    connection.commit().await.map_err(UserError::from)?;
+
+    if existing_id.is_none() {
+        let mut cookie = Cookie::build(("access_token", user.generate_access_token()))
+            .http_only(true)
+            .same_site(SameSite::Lax)
+            .path("/");
+
+        if !cfg!(debug_assertions) {
+            cookie = cookie.secure(true)
+        }
+
+        cookies.add(cookie);
+    }
+
+    Ok(Response2::new(()).with_header("Location", "/").status(Status::TemporaryRedirect))
 }
 
 #[rocket::post("/")]

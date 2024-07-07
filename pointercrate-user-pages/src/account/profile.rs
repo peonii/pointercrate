@@ -111,7 +111,14 @@ impl AccountPageTab for ProfileTab {
                     }
                     div.flex.no-stretch {
                         input.button.red.hover #delete-account type = "button" style = "margin: 15px auto 0px;" value="Delete My Account";
-                        input.button.blue.hover #change-password type = "button" style = "margin: 15px auto 0px;" value="Change Password";
+                        @match authenticated_user.google_account_id {
+                            Some(_) => {
+                            },
+                            None => {
+                                input.button.blue.hover #change-password type = "button" style = "margin: 15px auto 0px;" value="Change Password";
+                                input.button.blue.hover #link-google type = "button" style = "margin: 15px auto 0px;" value="Link Google";
+                            }
+                        }
                     }
                 }
             }
