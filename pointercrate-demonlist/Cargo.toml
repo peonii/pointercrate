@@ -7,16 +7,16 @@ edition.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-serde = "1.0.202"
+serde = "1.0.204"
 sqlx = { version = "0.7", default-features = false, features = [ "runtime-tokio-native-tls", "macros", "postgres", "chrono" ] }
-derive_more = "0.99.11"
+derive_more = "0.99.18"
 pointercrate-core = {path = "../pointercrate-core"}
 pointercrate-user = {path = "../pointercrate-user"}
-log = "0.4.21"
+log = "0.4.22"
 futures = "0.3.8"
 chrono = {version = "0.4.38", features = ["serde"]}
-url = "2.2.0"
+url = "2.5.2"
 
 [dev-dependencies]
 dotenv = "0.15.0"
-tokio = "1.37.0"
+tokio = "1.38.0"
