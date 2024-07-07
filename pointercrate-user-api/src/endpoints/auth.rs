@@ -16,28 +16,6 @@ use rocket::{
 };
 use std::net::IpAddr;
 
-#[rocket::post("/register", data = "<body>")]
-pub async fn register(
-    ip: IpAddr, body: Json<Registration>, ratelimits: &State<UserRatelimits>, pool: &State<PointercratePool>,
-) -> Result<Response2<Tagged<User>>> {
-    let mut connection = pool.transaction().await.map_err(UserError::from)?;
-
-    ratelimits.soft_registrations(ip)?;
-
-    AuthenticatedUser::validate_password(&body.password)?;
-    User::validate_name(&body.name)?;
-
-    let user = AuthenticatedUser::register(body.0, &mut *connection).await?;
-
-    ratelimits.registrations(ip)?;
-
-    connection.commit().await.map_err(UserError::from)?;
-
-    Ok(Response2::tagged(user.into_inner())
-        .with_header("Location", "api/v1/auth/me")
-        .status(Status::Created))
-}
-
 #[rocket::get("/authorize?<legacy>")]
 pub async fn authorize(
     ip: IpAddr, ratelimits: &State<UserRatelimits>, legacy: Option<&str>, cookies: &CookieJar<'_>,
@@ -130,16 +108,6 @@ pub async fn invalidate(mut auth: BasicAuth) -> Result<Status> {
     auth.connection.commit().await.map_err(UserError::from)?;
 
     Ok(Status::NoContent)
-}
-
-#[rocket::get("/verify_email?<token>")]
-pub async fn verify_email(mut auth: TokenAuth, token: &str) -> Result<&'static str> {
-    let email = auth.user.validate_change_email_token(token)?;
-
-    auth.user.set_email_address(email, &mut auth.connection).await?;
-    auth.commit().await?;
-
-    Ok("Success! You can close this tab/window now")
 }
 
 #[rocket::get("/me")]
