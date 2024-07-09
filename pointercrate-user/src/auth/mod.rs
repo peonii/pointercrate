@@ -64,6 +64,10 @@ impl AuthenticatedUser {
         self.email_address.as_deref()
     }
 
+    pub fn is_google_linked(&self) -> bool {
+        self.google_account_id.is_some()
+    }
+
     pub fn validate_password(password: &str) -> Result<()> {
         if password.len() < 10 {
             return Err(UserError::InvalidPassword);
@@ -74,9 +78,7 @@ impl AuthenticatedUser {
 
     fn jwt_secret(&self) -> Vec<u8> {
         let mut key: Vec<u8> = pointercrate_core::config::secret();
-        if self.password_hash.is_some() {
-            key.extend(self.password_salt());
-        }
+        key.extend(self.password_salt());
         key
     }
 

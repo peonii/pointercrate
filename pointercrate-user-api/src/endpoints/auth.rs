@@ -2,13 +2,13 @@ use crate::{
     auth::{BasicAuth, TokenAuth},
     ratelimits::UserRatelimits,
 };
-use pointercrate_core::{etag::Taggable, pool::PointercratePool};
+use pointercrate_core::{error::CoreError, etag::Taggable, pool::PointercratePool};
 use pointercrate_core_api::{
     error::Result,
     etag::{Precondition, Tagged},
     response::Response2,
 };
-use pointercrate_user::{error::UserError, AuthenticatedUser, PatchMe, Registration, User};
+use pointercrate_user::{error::UserError, AuthenticatedUser, PatchMe, User};
 use rocket::{
     http::{Cookie, CookieJar, SameSite, Status},
     serde::json::{serde_json, Json},
@@ -52,7 +52,7 @@ pub async fn callback(
 
     if cookies.get("legacy").is_some() {
         if auth.is_err() {
-            return Err(UserError::Core(pointercrate_core::error::CoreError::Unauthorized).into());
+            return Err(UserError::Core(CoreError::Unauthorized).into());
         }
 
         let user = auth?.user;
@@ -70,18 +70,16 @@ pub async fn callback(
 
     connection.commit().await.map_err(UserError::from)?;
 
-    if existing_id.is_none() {
-        let mut cookie = Cookie::build(("access_token", user.generate_access_token()))
-            .http_only(true)
-            .same_site(SameSite::Lax)
-            .path("/");
+    let mut cookie = Cookie::build(("access_token", user.generate_access_token()))
+        .http_only(true)
+        .same_site(SameSite::Lax)
+        .path("/");
 
-        if !cfg!(debug_assertions) {
-            cookie = cookie.secure(true)
-        }
-
-        cookies.add(cookie);
+    if !cfg!(debug_assertions) {
+        cookie = cookie.secure(true)
     }
+
+    cookies.add(cookie);
 
     Ok(Response2::new(()).with_header("Location", "/").status(Status::TemporaryRedirect))
 }

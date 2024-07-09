@@ -46,6 +46,9 @@ pub enum UserError {
     #[display(fmt = "The user is already linked to a Google account")]
     AlreadyLinked,
 
+    #[display(fmt = "This operation is not applicable to this user")]
+    NotApplicable,
+
     /// `409 CONFLICT` error returned if a user tries to register with a name that's already taken
     ///
     /// Error Code `40902`
@@ -97,6 +100,7 @@ impl PointercrateError for UserError {
             UserNotFoundGoogleAccount { .. } => 40401,
             NameTaken => 40902,
             AlreadyLinked => 40903,
+            NotApplicable => 40904,
             InvalidUsername => 42202,
             InvalidPassword => 42204,
             NotYouTube => 42226,
