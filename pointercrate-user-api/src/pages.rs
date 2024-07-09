@@ -31,7 +31,7 @@ pub async fn login(
 
     let mut cookie = Cookie::build(("access_token", auth.user.generate_access_token()))
         .http_only(true)
-        .same_site(SameSite::Lax)
+        .same_site(SameSite::Strict)
         .path("/");
 
     if !cfg!(debug_assertions) {

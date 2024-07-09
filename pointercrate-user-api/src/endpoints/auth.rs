@@ -23,7 +23,10 @@ pub async fn authorize(
     ratelimits.login_attempts(ip)?;
 
     if legacy.is_some() {
-        let legacy_cookie = Cookie::build(("legacy", "true")).http_only(true).same_site(SameSite::Lax).path("/");
+        let legacy_cookie = Cookie::build(("legacy", "true"))
+            .http_only(true)
+            .same_site(SameSite::Strict)
+            .path("/");
 
         cookies.add(legacy_cookie);
     }
@@ -72,7 +75,7 @@ pub async fn callback(
 
     let mut cookie = Cookie::build(("access_token", user.generate_access_token()))
         .http_only(true)
-        .same_site(SameSite::Lax)
+        .same_site(SameSite::Strict)
         .path("/");
 
     if !cfg!(debug_assertions) {
