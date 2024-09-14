@@ -3,5 +3,14 @@
 .secret
 .idea
 .vscode
+<<<<<<< HEAD
 **/.DS_Store
 .DS_Store
+=======
+
+# random stuff I have because of enabling eslint in vscode
+node_modules
+eslint.config.mjs
+package-lock.json
+package.json
+>>>>>>> orig/master

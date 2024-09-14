@@ -8,7 +8,7 @@ use pointercrate_demonlist::{
     submitter::Submitter,
     LIST_ADMINISTRATOR, LIST_HELPER, LIST_MODERATOR,
 };
-use pointercrate_user::AuthenticatedUser;
+use pointercrate_user::auth::AuthenticatedUser;
 use pointercrate_user_pages::account::AccountPageConfig;
 use rocket::{http::Status, local::asynchronous::Client};
 use sqlx::{pool::PoolConnection, PgConnection, Pool, Postgres};
@@ -80,7 +80,7 @@ pub async fn add_simple_record(progress: i16, player: i32, demon: i32, status: R
         .unwrap();
 
     sqlx::query!(
-        "INSERT INTO records (progress, status_, player, submitter, demon, video) VALUES ($1, $2::text::record_status, $3, $4, $5, NULL) \
+        "INSERT INTO records (progress, status_, player, submitter, demon, video, raw_footage) VALUES ($1, $2::text::record_status, $3, $4, $5, NULL, NULL) \
          RETURNING id",
         progress,
         status.to_sql(),

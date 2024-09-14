@@ -1,9 +1,13 @@
+<<<<<<< HEAD
 import {
   Form,
   valueMissing,
   tooShort,
   post,
 } from "/static/core/js/modules/form.js";
+=======
+import { Form, valueMissing, tooShort, post } from "/static/core/js/modules/form.js?v=4";
+>>>>>>> orig/master
 
 function initializeLoginForm() {
   var loginForm = new Form(document.getElementById("login-form"));

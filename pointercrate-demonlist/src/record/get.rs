@@ -13,6 +13,7 @@ use sqlx::{Error, PgConnection};
 struct FetchedRecord {
     progress: i16,
     video: Option<String>,
+    raw_footage: Option<String>,
     status: String,
     player_id: i32,
     player_name: String,
@@ -35,6 +36,7 @@ impl FullRecord {
                 id,
                 progress: row.progress,
                 video: row.video,
+                raw_footage: row.raw_footage,
                 status: RecordStatus::from_sql(&row.status),
                 player: DatabasePlayer {
                     id: row.player_id,
@@ -136,4 +138,24 @@ pub async fn approved_records_on(demon: &MinimalDemon, connection: &mut PgConnec
     }
 
     Ok(records)
+}
+
+pub async fn submission_count(connection: &mut PgConnection) -> Result<i64> {
+    Ok(sqlx::query!("SELECT COUNT(*) FROM records WHERE status_='SUBMITTED'")
+        .fetch_one(connection)
+        .await?
+        .count
+        .unwrap_or_default())
+}
+
+#[cfg(test)]
+mod test {
+    use sqlx::{pool::PoolConnection, Postgres};
+
+    use crate::record::get::submission_count;
+
+    #[sqlx::test(migrations = "../migrations")]
+    fn test_submission_count(mut conn: PoolConnection<Postgres>) {
+        assert_eq!(submission_count(&mut conn).await.unwrap(), 0);
+    }
 }

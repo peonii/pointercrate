@@ -8,7 +8,7 @@ use pointercrate_core_api::{
     etag::{Precondition, Tagged},
     response::Response2,
 };
-use pointercrate_user::{error::UserError, AuthenticatedUser, PatchMe, User};
+use pointercrate_user::{auth::AuthenticatedUser, auth::PatchMe, error::UserError, User};
 use rocket::{
     http::{Cookie, CookieJar, SameSite, Status},
     serde::json::{serde_json, Json},
@@ -16,6 +16,7 @@ use rocket::{
 };
 use std::net::IpAddr;
 
+#[cfg(feature = "oauth2")]
 #[rocket::get("/authorize?<legacy>")]
 pub async fn authorize(
     ip: IpAddr, ratelimits: &State<UserRatelimits>, legacy: Option<&str>, cookies: &CookieJar<'_>,
@@ -43,6 +44,7 @@ pub async fn authorize(
         .status(Status::TemporaryRedirect))
 }
 
+#[cfg(feature = "oauth2")]
 #[rocket::get("/callback?<code>")]
 pub async fn callback(
     auth: std::result::Result<TokenAuth, UserError>, pool: &State<PointercratePool>, ip: IpAddr, ratelimits: &State<UserRatelimits>,
@@ -87,6 +89,25 @@ pub async fn callback(
     Ok(Response2::new(()).with_header("Location", "/").status(Status::TemporaryRedirect))
 }
 
+#[cfg(feature = "legacy_accounts")]
+#[rocket::post("/register", data = "<body>")]
+pub async fn register(
+    ip: IpAddr, body: Json<Registration>, ratelimits: &State<UserRatelimits>, pool: &State<PointercratePool>,
+) -> Result<Response2<Tagged<User>>> {
+    #[cfg(feature = "legacy_accounts")]
+    use {
+        pointercrate_core::pool::PointercratePool,
+        pointercrate_user::auth::legacy::{LegacyAuthenticatedUser, Registration},
+    };
+
+    LegacyAuthenticatedUser::validate_password(&body.password)?;
+    User::validate_name(&body.name)?;
+
+    Ok(Response2::tagged(user.into_user())
+        .with_header("Location", "api/v1/auth/me")
+        .status(Status::Created))
+}
+
 #[rocket::post("/")]
 pub async fn login(
     auth: std::result::Result<BasicAuth, UserError>, ip: IpAddr, ratelimits: &State<UserRatelimits>,
@@ -96,16 +117,20 @@ pub async fn login(
 
     Ok(Response2::json(serde_json::json! {
         {
-            "data": auth.user.inner(),
+            "data": auth.user.user(),
             "token": auth.user.generate_access_token()
         }
     })
-    .with_header("etag", auth.user.inner().etag_string()))
+    .with_header("etag", auth.user.user().etag_string()))
 }
 
 #[rocket::post("/invalidate")]
 pub async fn invalidate(mut auth: BasicAuth) -> Result<Status> {
-    auth.user.invalidate_all_tokens(&auth.secret, &mut auth.connection).await?;
+    match auth.user {
+        AuthenticatedUser::Legacy(legacy) => legacy.invalidate_all_tokens(auth.secret, &mut auth.connection).await?,
+        AuthenticatedUser::OAuth2(oauth) => todo!(), // I have no clue what we'll do here
+    }
+
     auth.connection.commit().await.map_err(UserError::from)?;
 
     Ok(Status::NoContent)
@@ -113,20 +138,14 @@ pub async fn invalidate(mut auth: BasicAuth) -> Result<Status> {
 
 #[rocket::get("/me")]
 pub fn get_me(auth: TokenAuth) -> Tagged<User> {
-    Tagged(auth.user.into_inner())
+    Tagged(auth.user.into_user())
 }
 
 #[rocket::patch("/me", data = "<patch>")]
-pub async fn patch_me(
-    mut auth: BasicAuth, patch: Json<PatchMe>, pred: Precondition, ip: IpAddr, ratelimits: &State<UserRatelimits>,
-) -> Result<std::result::Result<Tagged<User>, Status>> {
-    pred.require_etag_match(auth.user.inner())?;
+pub async fn patch_me(mut auth: BasicAuth, patch: Json<PatchMe>, pred: Precondition) -> Result<std::result::Result<Tagged<User>, Status>> {
+    pred.require_etag_match(auth.user.user())?;
 
     let changes_password = patch.changes_password();
-
-    if patch.initiates_email_change() {
-        ratelimits.change_email(ip)?;
-    }
 
     let updated_user = auth.user.apply_patch(patch.0, &mut auth.connection).await?;
 
@@ -135,13 +154,13 @@ pub async fn patch_me(
     if changes_password {
         Ok(Err(Status::NotModified))
     } else {
-        Ok(Ok(Tagged(updated_user.into_inner())))
+        Ok(Ok(Tagged(updated_user)))
     }
 }
 
 #[rocket::delete("/me")]
 pub async fn delete_me(mut auth: BasicAuth, pred: Precondition) -> Result<Status> {
-    pred.require_etag_match(auth.user.inner())?;
+    pred.require_etag_match(auth.user.user())?;
 
     auth.user.delete(&mut auth.connection).await?;
     auth.connection.commit().await.map_err(UserError::from)?;

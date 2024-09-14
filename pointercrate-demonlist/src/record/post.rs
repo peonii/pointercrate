@@ -8,7 +8,7 @@ use crate::{
 use derive_more::Display;
 use log::debug;
 use serde::Deserialize;
-use sqlx::{PgConnection, Row};
+use sqlx::PgConnection;
 use url::Url;
 
 #[derive(Deserialize, Debug, Display)]
@@ -172,23 +172,24 @@ impl NormalizedSubmission {
 
 impl ValidatedSubmission {
     pub async fn create(self, submitter: Submitter, connection: &mut PgConnection) -> Result<FullRecord> {
-        let id = sqlx::query(
-            "INSERT INTO records (progress, video, status_, player, submitter, demon) VALUES ($1, $2::TEXT, 'SUBMITTED', $3, $4,$5) \
-             RETURNING id",
+        let id = sqlx::query!(
+            "INSERT INTO records (progress, video, status_, player, submitter, demon, raw_footage) VALUES ($1, $2::TEXT, 'SUBMITTED', $3, $4, $5, $6) RETURNING id",
+            self.progress,
+            self.video,
+            self.player.id,
+            submitter.id,
+            self.demon.id,
+            self.raw_footage
         )
-        .bind(self.progress)
-        .bind(&self.video)
-        .bind(self.player.id)
-        .bind(submitter.id)
-        .bind(self.demon.id)
         .fetch_one(&mut *connection)
         .await?
-        .get("id");
+        .id;
 
         let mut record = FullRecord {
             id,
             progress: self.progress,
             video: self.video,
+            raw_footage: self.raw_footage,
             status: RecordStatus::Submitted,
             player: self.player,
             demon: self.demon,
@@ -209,16 +210,6 @@ impl ValidatedSubmission {
             }
         }
 
-        if let Some(raw_footage) = self.raw_footage {
-            sqlx::query!(
-                "INSERT INTO record_notes (record, content) VALUES ($1, $2)",
-                record.id,
-                format!("Raw footage: {}", raw_footage)
-            )
-            .execute(&mut *connection)
-            .await?;
-        }
-
         if self.status != RecordStatus::Submitted {
             record.player.update_score(connection).await?;
         }
@@ -235,19 +226,10 @@ mod tests {
         player::DatabasePlayer,
         record::{post::NormalizedSubmission, RecordStatus},
     };
-    use pointercrate_core::pool::PointercratePool;
-    use sqlx::{Postgres, Transaction};
+    use sqlx::{pool::PoolConnection, Postgres};
 
-    async fn connection() -> Transaction<'static, Postgres> {
-        let _ = dotenv::dotenv();
-
-        PointercratePool::init().await.transaction().await.unwrap()
-    }
-
-    #[tokio::test]
-    async fn test_banned_cannot_submit() {
-        let mut conn = connection().await;
-
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_banned_cannot_submit(mut conn: PoolConnection<Postgres>) {
         let result = NormalizedSubmission {
             progress: 100,
             player: DatabasePlayer {
