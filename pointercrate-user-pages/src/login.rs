@@ -1,4 +1,5 @@
 use maud::{html, Markup};
+use pointercrate_core::config;
 use pointercrate_core_pages::{head::HeadLike, PageFragment};
 
 pub fn login_page() -> PageFragment {
@@ -8,6 +9,7 @@ pub fn login_page() -> PageFragment {
     )
     .module("/static/user/js/login.js?v=4")
     .module("/static/core/js/modules/form.js?v=4")
+    .script("https://accounts.google.com/gsi/client")
     .stylesheet("/static/user/css/login.css")
     .body(login_page_body())
 }
@@ -52,11 +54,10 @@ fn login_page_body() -> Markup {
                 p {
                     "Log in or create a new pointercrate account with your Google account."
                 }
-                form.flex.col.grow #oauth2-form novalidate = "" {
-                    p.info-red.output {}
-                    input.button.blue.hover type = "submit" style = "margin: 15px auto 0px;" value = "Log in with Google";
-                }
+                div .g_id_signin {}
             }
+
+            div #g_id_onload data-context="signin" data-ux_mode="popup" data-auto_select="true" data-itp_support="true" data-client_id=(config::google_client_id()) data-login_uri=(config::google_redirect_uri()) {}
         }
     } else {
         html!()

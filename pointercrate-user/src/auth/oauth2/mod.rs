@@ -9,6 +9,7 @@ pub struct OAuth2AuthenticatedUser {
 }
 
 pub mod get;
+pub mod post;
 
 impl OAuth2AuthenticatedUser {
     pub fn into_user(self) -> User {

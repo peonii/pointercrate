@@ -8,70 +8,83 @@ use pointercrate_core_api::{
     etag::{Precondition, Tagged},
     response::Response2,
 };
-use pointercrate_user::{auth::AuthenticatedUser, auth::PatchMe, error::UserError, User};
+use pointercrate_user::{
+    auth::{AuthenticatedUser, PatchMe},
+    error::UserError,
+    User,
+};
 use rocket::{
+    form::Form,
     http::{Cookie, CookieJar, SameSite, Status},
     serde::json::{serde_json, Json},
-    State,
+    FromForm, State,
 };
 use std::net::IpAddr;
-
+//
+// #[cfg(feature = "oauth2")]
+// #[rocket::get("/authorize?<legacy>")]
+// pub async fn authorize(
+// ip: IpAddr, ratelimits: &State<UserRatelimits>, legacy: Option<&str>, cookies: &CookieJar<'_>,
+// ) -> Result<Response2<()>> {
+// ratelimits.login_attempts(ip)?;
+//
+// if legacy.is_some() {
+// let legacy_cookie = Cookie::build(("legacy", "true"))
+// .http_only(true)
+// .same_site(SameSite::Strict)
+// .path("/");
+//
+// cookies.add(legacy_cookie);
+// }
+//
+// let redirect_uri = "https://accounts.google.com/o/oauth2/v2/auth".to_string()
+// + format!("?client_id={}", std::env::var("GOOGLE_CLIENT_ID").unwrap()).as_str()
+// + "&response_type=code"
+// + "&prompt=consent"
+// + "&scope=email%20profile"
+// + "&redirect_uri=http%3A%2F%2Flocalhost%3A1971%2Fapi%2Fv1%2Fauth%2Fcallback";
+//
+// Ok(Response2::new(())
+// .with_header("Location", redirect_uri)
+// .status(Status::TemporaryRedirect))
+// }
+//
+//
+//
 #[cfg(feature = "oauth2")]
-#[rocket::get("/authorize?<legacy>")]
-pub async fn authorize(
-    ip: IpAddr, ratelimits: &State<UserRatelimits>, legacy: Option<&str>, cookies: &CookieJar<'_>,
-) -> Result<Response2<()>> {
-    ratelimits.login_attempts(ip)?;
-
-    if legacy.is_some() {
-        let legacy_cookie = Cookie::build(("legacy", "true"))
-            .http_only(true)
-            .same_site(SameSite::Strict)
-            .path("/");
-
-        cookies.add(legacy_cookie);
-    }
-
-    let redirect_uri = "https://accounts.google.com/o/oauth2/v2/auth".to_string()
-        + format!("?client_id={}", std::env::var("GOOGLE_CLIENT_ID").unwrap()).as_str()
-        + "&response_type=code"
-        + "&prompt=consent"
-        + "&scope=email%20profile"
-        + "&redirect_uri=http%3A%2F%2Flocalhost%3A1971%2Fapi%2Fv1%2Fauth%2Fcallback";
-
-    Ok(Response2::new(())
-        .with_header("Location", redirect_uri)
-        .status(Status::TemporaryRedirect))
+#[derive(FromForm)]
+struct Credentials {
+    credential: String,
+    g_csrf_token: String,
 }
 
 #[cfg(feature = "oauth2")]
-#[rocket::get("/callback?<code>")]
+#[rocket::post("/callback", data = "<credentials>")]
 pub async fn callback(
     auth: std::result::Result<TokenAuth, UserError>, pool: &State<PointercratePool>, ip: IpAddr, ratelimits: &State<UserRatelimits>,
-    code: &str, cookies: &CookieJar<'_>,
+    credentials: Form<Credentials>, cookies: &CookieJar<'_>,
 ) -> Result<Response2<()>> {
     ratelimits.login_attempts(ip)?;
     let mut connection = pool.transaction().await.map_err(UserError::from)?;
 
-    let mut existing_id: Option<i32> = None;
-
-    if cookies.get("legacy").is_some() {
-        if auth.is_err() {
-            return Err(UserError::Core(CoreError::Unauthorized).into());
-        }
-
-        let user = auth?.user;
-
-        if user.google_account_id.is_some() {
-            return Err(UserError::AlreadyLinked.into());
-        }
-
-        existing_id = Some(user.inner().id);
-
-        cookies.remove("legacy");
-    }
-
-    let user = AuthenticatedUser::oauth2_callback(code, existing_id, &mut *connection).await?;
+    // if cookies.get("legacy").is_some() {
+    // if auth.is_err() {
+    // return Err(UserError::Core(CoreError::Unauthorized).into());
+    // }
+    //
+    // let user = auth?.user;
+    //
+    // if user.google_account_id.is_some() {
+    // return Err(UserError::AlreadyLinked.into());
+    // }
+    //
+    // existing_id = Some(user.inner().id);
+    //
+    // cookies.remove("legacy");
+    // }
+    //
+    //
+    let user = AuthenticatedUser::oauth2_callback(&credentials.credential, &mut *connection).await?;
 
     connection.commit().await.map_err(UserError::from)?;
 
